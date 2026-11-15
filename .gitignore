@@ -1,0 +1,22 @@
+# Java
+**/target/
+
+# Next.js e dependências
+**/node_modules/
+**/.next/
+**/out/
+**/*.tsbuildinfo
+
+# Configurações locais
+**/.env
+**/.env.*
+!**/.env.example
+
+# macOS
+**/.DS_Store
+**/__MACOSX/
+
+# Arquivos compactados
+*.zip
+*.tar
+*.tar.gz
