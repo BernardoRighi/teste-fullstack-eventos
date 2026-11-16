@@ -35,6 +35,8 @@ cd backend && mvn test && mvn package
 cd frontend && npm run build
 ```
 
+Não foi possível executar os comandos neste ambiente; validar localmente depois de baixar as dependências.
+
 ## API
 
 | Método         | Rota                   | Descrição                |
