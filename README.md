@@ -6,14 +6,14 @@ CRUD completo de instituições e eventos; cada evento pertence a uma instituiç
 
 ## Pré-requisitos
 
-Java 21, Maven 3.9+, Node.js 20.9+, npm e Docker com Compose. As versões das bibliotecas estão fixadas no pom.xml/package.json; em ambiente corporativo, revisar atualizações de segurança antes do deploy. O projeto não contém lockfile; gerar e versionar package-lock.json executando `npm install` antes de entregá-lo para CI.
+Java 21, Maven 3.9+, Node.js 20.9+, npm e Docker com Compose. As versões das bibliotecas estão fixadas no pom.xml/package.json; em ambiente corporativo, revisar atualizações de segurança antes do deploy.
 
 ## Iniciar
 
 Na raiz:
 
 ```bash
-docker compose up -d
+docker compose up -lockfile
 cd backend && mvn spring-boot:run
 ```
 
