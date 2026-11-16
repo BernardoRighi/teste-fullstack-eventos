@@ -12,52 +12,195 @@ Cada evento pertence a uma instituição. Seu status de atividade é calculado a
 - Next.js 15.3.3, React 19.1.0 e TypeScript.
 - JUnit 5, MockMvc e Testcontainers com PostgreSQL para testes do backend.
 - ESLint no frontend.
-- Docker Compose para executar o PostgreSQL localmente.
+- Docker e Docker Compose para executar PostgreSQL, backend e frontend.
 
-As dependências do backend estão declaradas em `backend/pom.xml`. O frontend possui `package.json` e `package-lock.json` versionado; use `npm ci` para instalar as dependências conforme o lockfile.
+As dependências do backend estão declaradas em `backend/pom.xml`. O frontend possui `package.json` e `package-lock.json` versionados; use `npm ci` para instalar as dependências conforme o lockfile.
 
-## Pré-requisitos
+## Executar com Docker
+
+Esta é a forma recomendada para executar a aplicação completa. Não é necessário instalar Java, Maven ou Node.js na máquina: a compilação ocorre nas imagens Docker.
+
+### Pré-requisitos
+
+- Git.
+- Docker em execução, com Docker Compose v2.
+- Portas locais 3000, 8080 e 5433 disponíveis.
+
+### 1. Clonar o repositório
+
+```bash
+git clone https://github.com/BernardoRighi/teste-fullstack-eventos.git
+cd teste-fullstack-eventos
+```
+
+### 2. Compilar e iniciar os serviços
+
+Na raiz do repositório:
+
+```bash
+docker compose up --build -d
+```
+
+O Compose inicia três serviços:
+
+| Serviço    | Finalidade          | Acesso local              |
+| ---------- | ------------------- | ------------------------- |
+| `postgres` | Banco PostgreSQL 16 | `localhost:5433`          |
+| `backend`  | API Spring Boot     | http://localhost:8080/api |
+| `frontend` | Aplicação Next.js   | http://localhost:3000     |
+
+Na primeira execução, o Docker baixa as imagens e as dependências e compila o backend e o frontend. Isso pode levar alguns minutos.
+
+O backend aguarda o health check do PostgreSQL antes de iniciar. O frontend depende da inicialização do container do backend, mas essa condição não garante que a API já esteja pronta. Aguarde a conclusão da inicialização do Spring Boot antes de utilizar a interface.
+
+O Flyway aplica as migrações ao iniciar o backend. O Hibernate utiliza `ddl-auto: validate` para validar o schema, em vez de criá-lo automaticamente.
+
+### 3. Verificar a execução
+
+```bash
+docker compose ps
+docker compose logs -f
+```
+
+Para acompanhar somente um serviço:
+
+```bash
+docker compose logs -f backend
+docker compose logs -f frontend
+```
+
+Abra http://localhost:3000.
+
+O health check da API está disponível em http://localhost:8080/actuator/health.
+
+Encerrar o acompanhamento dos logs com `Ctrl+C` não encerra os containers iniciados com `-d`.
+
+### Comunicação entre os serviços
+
+Dentro da rede do Compose, os serviços são acessados pelo nome:
+
+- O backend acessa o banco em `jdbc:postgresql://postgres:5432/teste`.
+- O servidor Next.js acessa o backend em `http://backend:8080`.
+- O navegador acessa o frontend em `http://localhost:3000`.
+
+Dentro de um container, `localhost` aponta para o próprio container, não para outro serviço nem para a máquina host.
+
+O frontend encaminha `/backend/:path*` para `/api/:path*` por meio de um rewrite do Next.js. O navegador não acessa diretamente o nome `backend`; o encaminhamento é realizado pelo servidor Next.js.
+
+### Configuração do build
+
+Os Dockerfiles utilizam múltiplas etapas de build:
+
+- Backend: Maven e JDK 21 para compilar; JRE 21 para executar o JAR.
+- Frontend: Node.js 22 para instalar dependências e compilar; saída `standalone` do Next.js para execução.
+
+As imagens de execução utilizam usuários sem privilégios de root.
+
+A variável `JAVA_API_URL` é passada como argumento de build do frontend pelo Compose, com valor `http://backend:8080`. Como o rewrite é definido no build de produção do Next.js, alterar apenas uma variável no container em execução não atualiza esse destino. Após alterar o argumento, reconstrua a imagem:
+
+```bash
+docker compose up --build -d frontend
+```
+
+Não é necessário criar `frontend/.env.local` para executar a configuração Docker fornecida. Os arquivos `.dockerignore` excluem arquivos de ambiente locais do contexto de build.
+
+O build da imagem do backend utiliza `-DskipTests`. Os testes devem ser executados separadamente, conforme a seção de testes.
+
+### Encerrar e preservar os dados
+
+```bash
+docker compose down
+```
+
+Esse comando encerra os serviços e preserva o volume do banco.
+
+Para encerrar e também apagar os dados locais:
+
+```bash
+docker compose down -v
+```
+
+**Atenção:** a opção `-v` remove o volume do PostgreSQL. Use apenas quando desejar reiniciar o banco do zero.
+
+### Credenciais locais
+
+A configuração Docker sugerida utiliza:
+
+| Parâmetro            | Valor           |
+| -------------------- | --------------- |
+| Banco                | `teste`         |
+| Usuário              | `eventos`       |
+| Senha                | `eventos_local` |
+| Porta no host        | `5433`          |
+| Porta na rede Docker | `5432`          |
+
+Essas credenciais são exclusivamente para desenvolvimento local e não devem ser usadas em produção.
+
+Se já existir um volume criado com credenciais anteriores, alterar `POSTGRES_USER` e `POSTGRES_PASSWORD` no Compose não altera automaticamente os usuários desse banco. Mantenha as credenciais compatíveis com o volume existente ou, se os dados forem descartáveis, recrie-o com `docker compose down -v` antes de iniciar novamente.
+
+## Executar localmente para desenvolvimento
+
+Nesta modalidade, somente o PostgreSQL roda no Docker. Backend e frontend são executados diretamente na máquina.
+
+### Pré-requisitos
 
 - JDK 21.
-- Maven 3.9 ou superior instalado localmente.
+- Maven 3.9 ou superior.
 - Node.js 20.9 ou superior e npm.
 - Docker em execução e Docker Compose v2.
 - Portas locais 3000, 8080 e 5433 disponíveis.
 
 Docker também é necessário para os testes de integração com Testcontainers.
 
-## Executar localmente
+Se a aplicação completa estiver rodando pelo Compose, encerre-a antes de iniciar os processos locais para evitar conflitos de portas:
 
-### 1. Iniciar o banco
+```bash
+docker compose down
+```
+
+### 1. Iniciar somente o banco
 
 Na raiz do repositório:
 
 ```bash
-docker compose up -d
+docker compose up -d postgres
 docker compose ps
 ```
 
-O Compose inicia somente o PostgreSQL, não o backend nem o frontend. O banco é publicado na porta `5433` do host, correspondente à porta `5432` do container, e usa um volume persistente chamado `postgres_data`.
-
-Aguarde o banco ficar saudável antes de iniciar o backend. As credenciais de desenvolvimento estão no Compose e na configuração do backend; não devem ser usadas em produção.
+Aguarde o PostgreSQL ficar saudável. O banco é publicado na porta `5433` do host, correspondente à porta `5432` do container, e utiliza o volume persistente `postgres_data`.
 
 ### 2. Iniciar o backend
 
-Em um terminal, partindo da raiz do repositório:
+Configure as variáveis com as credenciais do Compose. Em Bash, partindo da raiz:
 
 ```bash
 cd backend
+export DB_URL=jdbc:postgresql://localhost:5433/teste
+export DB_USER=eventos
+export DB_PASSWORD=eventos_local
+export BUSINESS_ZONE=America/Sao_Paulo
 mvn spring-boot:run
 ```
 
-O Flyway aplica as migrações ao iniciar. O Hibernate está configurado com `ddl-auto: validate`, para validar o schema em vez de criá-lo automaticamente.
+No PowerShell:
+
+```powershell
+cd backend
+$env:DB_URL = "jdbc:postgresql://localhost:5433/teste"
+$env:DB_USER = "eventos"
+$env:DB_PASSWORD = "eventos_local"
+$env:BUSINESS_ZONE = "America/Sao_Paulo"
+mvn spring-boot:run
+```
 
 - API: http://localhost:8080/api
 - Health check: http://localhost:8080/actuator/health
 
+O Flyway aplica as migrações ao iniciar.
+
 ### 3. Iniciar o frontend
 
-Em outro terminal, partindo da raiz do repositório:
+Em outro terminal, partindo da raiz:
 
 ```bash
 cd frontend
@@ -72,9 +215,15 @@ No PowerShell, substitua o comando de cópia por:
 Copy-Item .env.example .env.local
 ```
 
-Abra http://localhost:3000.
+Para desenvolvimento local, utilize em `.env.local`:
 
-O frontend encaminha `/backend/:path*` para `/api/:path*` no backend por meio de um rewrite do Next.js. A variável `JAVA_API_URL` define o endereço do Java, com padrão `http://localhost:8080`. Informe a URL base sem o sufixo `/api`. Reinicie o Next.js após alterar a configuração.
+```dotenv
+JAVA_API_URL=http://localhost:8080
+```
+
+Informe a URL base sem o sufixo `/api`. Reinicie o Next.js após alterar a configuração.
+
+Abra http://localhost:3000.
 
 ### Encerrar
 
@@ -84,19 +233,21 @@ Encerre os processos do frontend e backend com `Ctrl+C`. Na raiz, execute:
 docker compose down
 ```
 
-Esse comando preserva o volume do banco. `docker compose down -v` também remove os volumes e apaga os dados locais; use apenas se desejar reiniciar o banco do zero.
+O volume do banco é preservado. Use `docker compose down -v` somente se também desejar apagar os dados locais.
 
 ## Configuração
 
-| Variável | Finalidade |
-| --- | --- |
-| `DB_URL` | URL JDBC do PostgreSQL. Padrão local: `jdbc:postgresql://localhost:5433/teste`. |
-| `DB_USER` | Usuário do banco utilizado pelo backend. |
-| `DB_PASSWORD` | Senha do banco utilizado pelo backend. |
-| `BUSINESS_ZONE` | Fuso usado para determinar a data de negócio. Padrão: `America/Sao_Paulo`. |
-| `JAVA_API_URL` | URL base do backend usada pelo rewrite do frontend. |
+| Variável        | Finalidade                                                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `DB_URL`        | URL JDBC do PostgreSQL. Local: `jdbc:postgresql://localhost:5433/teste`. Docker: `jdbc:postgresql://postgres:5432/teste`. |
+| `DB_USER`       | Usuário do banco utilizado pelo backend.                                                                                  |
+| `DB_PASSWORD`   | Senha do banco utilizado pelo backend.                                                                                    |
+| `BUSINESS_ZONE` | Fuso usado para determinar a data de negócio. Padrão: `America/Sao_Paulo`.                                                |
+| `JAVA_API_URL`  | URL base do backend usada pelo rewrite do frontend, sem `/api`. No Docker, é informada no build.                          |
 
-A tarefa de sincronização usa a propriedade Spring `app.sincronizacao.cron`, com expressão padrão `0 */5 * * * *` (a cada cinco minutos). Nos testes de integração, essa propriedade recebe `-` para desativar o agendamento automático.
+As variáveis do PostgreSQL no Compose (`POSTGRES_DB`, `POSTGRES_USER` e `POSTGRES_PASSWORD`) devem ser compatíveis com a configuração de conexão do backend.
+
+A tarefa de sincronização utiliza a propriedade Spring `app.sincronizacao.cron`, com expressão padrão `0 */5 * * * *` (a cada cinco minutos). Nos testes de integração, essa propriedade recebe `-` para desativar o agendamento automático.
 
 ## Regras de negócio
 
@@ -134,18 +285,18 @@ Entre execuções da tarefa, a coluna pode estar defasada em relação à passag
 
 ## API HTTP
 
-| Método | Rota | Resultado em caso de sucesso |
-| --- | --- | --- |
-| GET | `/api/instituicoes` | Lista de instituições — 200 |
-| POST | `/api/instituicoes` | Instituição criada — 201 e header `Location` |
-| GET | `/api/instituicoes/{id}` | Instituição encontrada — 200 |
-| PUT | `/api/instituicoes/{id}` | Instituição atualizada — 200 |
-| DELETE | `/api/instituicoes/{id}` | Exclusão — 204 |
-| GET | `/api/eventos` | Lista de eventos conforme filtro — 200 |
-| POST | `/api/eventos` | Evento criado — 201 e header `Location` |
-| GET | `/api/eventos/{id}` | Evento encontrado — 200 |
-| PUT | `/api/eventos/{id}` | Evento atualizado — 200 |
-| DELETE | `/api/eventos/{id}` | Exclusão — 204 |
+| Método | Rota                     | Resultado em caso de sucesso                 |
+| ------ | ------------------------ | -------------------------------------------- |
+| GET    | `/api/instituicoes`      | Lista de instituições — 200                  |
+| POST   | `/api/instituicoes`      | Instituição criada — 201 e header `Location` |
+| GET    | `/api/instituicoes/{id}` | Instituição encontrada — 200                 |
+| PUT    | `/api/instituicoes/{id}` | Instituição atualizada — 200                 |
+| DELETE | `/api/instituicoes/{id}` | Exclusão — 204                               |
+| GET    | `/api/eventos`           | Lista de eventos conforme filtro — 200       |
+| POST   | `/api/eventos`           | Evento criado — 201 e header `Location`      |
+| GET    | `/api/eventos/{id}`      | Evento encontrado — 200                      |
+| PUT    | `/api/eventos/{id}`      | Evento atualizado — 200                      |
+| DELETE | `/api/eventos/{id}`      | Exclusão — 204                               |
 
 ### Filtros de eventos
 
@@ -183,7 +334,7 @@ curl -i -X POST http://localhost:8080/api/eventos \
 
 O status retornado depende da data de negócio no momento da requisição, não das datas em que este exemplo foi escrito.
 
-Os comandos acima usam sintaxe de shell Bash. No Windows, adapte as aspas ao terminal utilizado.
+Os comandos acima utilizam sintaxe de shell Bash. No Windows, adapte as aspas ao terminal utilizado ou use um cliente HTTP.
 
 ### Erros
 
@@ -198,6 +349,8 @@ O tratamento centralizado retorna um objeto com `status`, `detail` e `timestamp`
 Execute cada bloco a partir da raiz do repositório, em terminais separados ou retornando à raiz entre eles.
 
 ### Backend
+
+Com JDK 21, Maven e Docker disponíveis:
 
 ```bash
 cd backend
@@ -220,7 +373,11 @@ mvn clean package
 
 O artefato é gerado em `backend/target/`. O comando `package` já executa os testes; não é necessário rodar `mvn test` imediatamente antes dele.
 
+**Importante:** o Dockerfile utiliza `mvn clean package -DskipTests`. Portanto, construir ou iniciar a aplicação pelo Compose não executa nem valida a suíte de testes.
+
 ### Frontend
+
+Com Node.js e npm disponíveis:
 
 ```bash
 cd frontend
@@ -229,18 +386,34 @@ npm run lint
 npm run build
 ```
 
-Para iniciar o frontend após o build:
+Para iniciar o frontend após o build local:
 
 ```bash
 npm run start
 ```
 
+Para o build local, mantenha `JAVA_API_URL` apontando para `http://localhost:8080`, caso o backend também seja acessado pela máquina host.
+
 Há configuração de ESLint no repositório, mas não há script de testes automatizados de interface no `package.json`. Lint e build não substituem testes funcionais.
+
+### Verificação funcional sugerida
+
+Após iniciar a aplicação:
+
+1. Acesse http://localhost:3000.
+2. Crie uma instituição.
+3. Crie um evento vinculado à instituição.
+4. Consulte e edite os registros.
+5. Verifique a listagem de eventos ativos conforme as datas informadas.
+6. Tente excluir uma instituição com eventos e confira o impedimento.
+7. Exclua o evento e, em seguida, a instituição.
 
 ## Organização do código
 
 ```text
 backend/
+  Dockerfile
+  .dockerignore
   pom.xml
   src/main/java/br/com/teste/eventos/
     api/          # Controllers, DTOs HTTP e tratamento de erros
@@ -255,6 +428,9 @@ backend/
     api/EventosApiIntegrationTest.java
     domain/RegraVigenciaTest.java
 frontend/
+  Dockerfile
+  .dockerignore
+  .env.example
   package.json
   package-lock.json
   eslint.config.mjs
@@ -263,16 +439,65 @@ frontend/
   src/hooks/      # Hook de carregamento remoto
   src/lib/api.ts  # Contratos TypeScript e acesso HTTP
 docker-compose.yml
+README.md
 ```
 
 ### Arquitetura implementada
 
-O backend é uma aplicação única organizada por pacotes de responsabilidade. Os controllers recebem as requisições, os serviços executam operações transacionais e os repositórios acessam o banco. O contrato HTTP usa records em vez de expor diretamente as entidades JPA.
+O backend é uma aplicação única organizada por pacotes de responsabilidade. Os controllers recebem as requisições, os serviços executam operações transacionais e os repositórios acessam o banco. O contrato HTTP utiliza records em vez de expor diretamente as entidades JPA.
 
 Essa organização não representa isolamento completo entre camadas: `EventoService` importa `EventoRequest` e `EventoResponse` de `api`, e `InstituicaoService` também utiliza os DTOs desse pacote. Os serviços, portanto, estão acoplados ao contrato da API. O projeto não deve ser descrito como arquitetura limpa, hexagonal ou camadas totalmente independentes.
 
-O Flyway versiona o schema. Chave estrangeira, campos obrigatórios e constraints protegem a integridade do banco, incluindo o período do evento e os tipos de instituição. As listagens filtradas de eventos usam `join fetch` da instituição.
+O Flyway versiona o schema. Chave estrangeira, campos obrigatórios e constraints protegem a integridade do banco, incluindo o período do evento e os tipos de instituição. As listagens filtradas de eventos utilizam `join fetch` da instituição.
 
-No frontend, o Next.js App Router organiza as páginas por arquivos. Os formulários e o carregamento remoto usam componentes e hooks de cliente; `src/lib/api.ts` centraliza o acesso HTTP.
+No frontend, o Next.js App Router organiza as páginas por arquivos. Os formulários e o carregamento remoto utilizam componentes e hooks de cliente; `src/lib/api.ts` centraliza o acesso HTTP.
 
-O Compose fornecido é voltado ao desenvolvimento local. A implementação e a documentação não constituem garantia de prontidão para produção.
+O Compose integra os três serviços para facilitar a execução local. O frontend utiliza saída `standalone` e um rewrite para encaminhar as chamadas à API.
+
+## Problemas comuns
+
+### Porta já está em uso
+
+Encerre o processo que está utilizando a porta ou altere o mapeamento no `docker-compose.yml`.
+
+Ao alterar apenas a porta publicada no host, preserve as portas internas usadas na comunicação entre containers. Por exemplo, publicar o backend em `8081:8080` não exige alterar `JAVA_API_URL=http://backend:8080`.
+
+### Frontend abre, mas a API ainda não responde
+
+Aguarde a inicialização do backend e consulte:
+
+```bash
+docker compose logs -f backend
+```
+
+Verifique também http://localhost:8080/actuator/health.
+
+### Falha de autenticação no PostgreSQL
+
+Confira se as credenciais do backend correspondem às do banco. Se o volume já existia, ele pode manter usuários e senhas da configuração anterior.
+
+Não remova o volume se precisar preservar os dados. Para um banco local descartável, `docker compose down -v` permite reinicializá-lo na próxima execução.
+
+### Alterações não aparecem na aplicação Docker
+
+A configuração fornecida não utiliza hot reload nem monta o código-fonte nos containers. Reconstrua as imagens após alterar o código:
+
+```bash
+docker compose up --build -d
+```
+
+Para hot reload, utilize a execução local de desenvolvimento.
+
+### Testcontainers não consegue iniciar
+
+Verifique se o Docker está em execução e acessível pelo usuário que executa o Maven. O banco do Compose não substitui o container criado pelos testes.
+
+## Limitações e escopo
+
+- A aplicação não implementa autenticação.
+- Não há testes automatizados de interface no frontend.
+- O build Docker do backend não executa os testes.
+- A coluna persistida `ativo` é sincronizada periodicamente, não instantaneamente na virada do dia.
+- A configuração fornecida é voltada ao desenvolvimento e à avaliação local.
+
+As credenciais locais, a publicação das portas e a ausência de autenticação não constituem uma configuração pronta para produção. A implementação e esta documentação não representam garantia de prontidão para produção.
