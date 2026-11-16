@@ -5,6 +5,9 @@ import org.springframework.http.*;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+
 @RestControllerAdvice
 public class ApiExceptionHandler {
 	private ResponseEntity<Erro> erro(HttpStatus status,String detalhe) {
@@ -27,4 +30,24 @@ public class ApiExceptionHandler {
 		return erro(HttpStatus.BAD_REQUEST,"JSON inválido; confira os campos, tipo e datas no formato AAAA-MM-DD.");
 	}
 	public record Erro(int status,String detail,Instant timestamp) {}
+	@ExceptionHandler(MethodArgumentTypeMismatchException.class)
+	public ResponseEntity<Erro> parametroInvalido(
+	    MethodArgumentTypeMismatchException exception
+	) {
+		return erro(
+		           HttpStatus.BAD_REQUEST,
+		           "Parâmetro inválido: " + exception.getName() + "."
+		       );
+	}
+
+	@ExceptionHandler(DataIntegrityViolationException.class)
+	public ResponseEntity<Erro> integridade(
+	    DataIntegrityViolationException exception
+	) {
+		return erro(
+		           HttpStatus.CONFLICT,
+		           "A operação viola uma restrição de integridade dos dados."
+		       );
+	}
+
 }
